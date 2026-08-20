@@ -26,11 +26,25 @@ function getCredentials() {
     );
   }
   const trimmed = raw.trim();
-  const jsonText = trimmed.startsWith("{") ? trimmed : Buffer.from(trimmed, "base64").toString("utf8");
+  const looksLikeJson = trimmed.startsWith("{");
+  const jsonText = looksLikeJson ? trimmed : Buffer.from(trimmed, "base64").toString("utf8");
+
   try {
     return JSON.parse(jsonText);
   } catch (e) {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY does not contain valid JSON (checked raw and base64-decoded).");
+    console.error("[getCredentials] Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY", {
+      rawLength: raw.length,
+      trimmedLength: trimmed.length,
+      looksLikeJson,
+      startsWith20: trimmed.slice(0, 20),
+      endsWith20: trimmed.slice(-20),
+      containsLiteralNewline: trimmed.includes("\n"),
+      containsCarriageReturn: trimmed.includes("\r"),
+      parseError: e.message
+    });
+    throw new Error(
+      `GOOGLE_SERVICE_ACCOUNT_KEY does not contain valid JSON. Detail: ${e.message}`
+    );
   }
 }
 
