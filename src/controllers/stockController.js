@@ -1,5 +1,28 @@
 const prisma = require("../prisma/client");
 
+function parseOptionalDate(value) {
+    if (!value) return null;
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return null;
+    }
+
+    return date;
+}
+
+function parseOptionalInt(value) {
+    if (value === undefined || value === null || value === "") {
+        return null;
+    }
+
+    const number = Number(value);
+
+    return Number.isInteger(number) ? number : null;
+}
+
+
 /*
  * STOCK INWARD
  */
@@ -11,27 +34,32 @@ exports.stockInward = async (req, res) => {
             unitPrice,
             remarks,
             batchNumber,
-            expiryDate
+            expiryDate,
+            vendorId,
+            indentNumber
         } = req.body;
 
         const qty = Number(quantity);
         const price = Number(unitPrice);
 
-        // Validate quantity
         if (!Number.isFinite(qty) || qty <= 0) {
             return res.status(400).json({
                 message: "Invalid quantity"
             });
         }
 
-        // Validate price
         if (!Number.isFinite(price) || price < 0) {
             return res.status(400).json({
                 message: "Invalid unit price"
             });
         }
 
-        // Find item
+        if (!itemCode) {
+            return res.status(400).json({
+                message: "Item code is required"
+            });
+        }
+
         const item = await prisma.item.findUnique({
             where: { itemCode }
         });
@@ -46,6 +74,9 @@ exports.stockInward = async (req, res) => {
         const stockBefore = Number(item.currentStock);
         const stockAfter = stockBefore + qty;
 
+        const parsedVendorId = parseOptionalInt(vendorId);
+        const parsedExpiryDate = parseOptionalDate(expiryDate);
+
         let priceChanged = false;
 
         /*
@@ -56,8 +87,6 @@ exports.stockInward = async (req, res) => {
 
             const difference = price - oldPrice;
 
-            // If old price is 0, percentage is undefined.
-            // Store NULL instead of Infinity.
             const percentage =
                 oldPrice === 0
                     ? null
@@ -66,22 +95,25 @@ exports.stockInward = async (req, res) => {
             await prisma.pricehistory.create({
                 data: {
                     itemId: item.id,
-                    oldPrice: oldPrice,
+                    oldPrice,
                     newPrice: price,
-                    difference: difference,
-                    percentage: percentage
+                    difference,
+                    percentage
                 }
             });
         }
 
         /*
-         * UPDATE ITEM
+         * UPDATE ITEM STOCK
          */
         await prisma.item.update({
             where: { id: item.id },
             data: {
                 currentStock: stockAfter,
                 unitPrice: price,
+                vendorId: parsedVendorId ?? item.vendorId,
+                batchNumber: batchNumber || item.batchNumber || null,
+                expiryDate: parsedExpiryDate || item.expiryDate || null,
                 updatedAt: new Date()
             }
         });
@@ -95,14 +127,26 @@ exports.stockInward = async (req, res) => {
                 transactionType: "INWARD",
                 quantity: qty,
                 unitPrice: price,
-                stockBefore: stockBefore,
-                stockAfter: stockAfter,
+                stockBefore,
+                stockAfter,
                 totalAmount: qty * price,
+
                 remarks: remarks || null,
-                batchNumber: batchNumber || null,
-                expiryDate: expiryDate
-                    ? new Date(expiryDate)
-                    : null
+
+                batchNumber:
+                    batchNumber || null,
+
+                expiryDate:
+                    parsedExpiryDate,
+
+                userId:
+                    req.user?.id || null,
+
+                vendorId:
+                    parsedVendorId,
+
+                indentNumber:
+                    indentNumber || null
             }
         });
 
@@ -136,19 +180,24 @@ exports.stockOutward = async (req, res) => {
             department,
             remarks,
             batchNumber,
-            expiryDate
+            expiryDate,
+            indentNumber
         } = req.body;
 
         const qty = Number(quantity);
 
-        // Validate quantity
         if (!Number.isFinite(qty) || qty <= 0) {
             return res.status(400).json({
                 message: "Invalid quantity"
             });
         }
 
-        // Find item
+        if (!itemCode) {
+            return res.status(400).json({
+                message: "Item code is required"
+            });
+        }
+
         const item = await prisma.item.findUnique({
             where: { itemCode }
         });
@@ -161,15 +210,16 @@ exports.stockOutward = async (req, res) => {
 
         const stockBefore = Number(item.currentStock);
 
-        // Check available stock
         if (qty > stockBefore) {
             return res.status(400).json({
-                message: "Insufficient stock"
+                message: `Insufficient stock. Available: ${stockBefore}`
             });
         }
 
         const stockAfter = stockBefore - qty;
         const price = Number(item.unitPrice);
+
+        const parsedExpiryDate = parseOptionalDate(expiryDate);
 
         /*
          * UPDATE STOCK
@@ -191,17 +241,33 @@ exports.stockOutward = async (req, res) => {
                 transactionType: "OUTWARD",
                 quantity: qty,
                 unitPrice: price,
-                stockBefore: stockBefore,
-                stockAfter: stockAfter,
+                stockBefore,
+                stockAfter,
                 totalAmount: qty * price,
-                employeeName: employeeName || null,
-                employeeId: employeeId || null,
-                department: department || null,
-                remarks: remarks || null,
-                batchNumber: batchNumber || null,
-                expiryDate: expiryDate
-                    ? new Date(expiryDate)
-                    : null
+
+                employeeName:
+                    employeeName || null,
+
+                employeeId:
+                    employeeId || null,
+
+                department:
+                    department || null,
+
+                remarks:
+                    remarks || null,
+
+                batchNumber:
+                    batchNumber || null,
+
+                expiryDate:
+                    parsedExpiryDate,
+
+                userId:
+                    req.user?.id || null,
+
+                indentNumber:
+                    indentNumber || null
             }
         });
 
@@ -234,19 +300,25 @@ exports.stockReturn = async (req, res) => {
             department,
             remarks,
             batchNumber,
-            expiryDate
+            expiryDate,
+            indentNumber,
+            returnDate
         } = req.body;
 
         const qty = Number(quantity);
 
-        // Validate quantity
         if (!Number.isFinite(qty) || qty <= 0) {
             return res.status(400).json({
                 message: "Invalid quantity"
             });
         }
 
-        // Find item
+        if (!itemCode) {
+            return res.status(400).json({
+                message: "Item code is required"
+            });
+        }
+
         const item = await prisma.item.findUnique({
             where: { itemCode }
         });
@@ -260,6 +332,10 @@ exports.stockReturn = async (req, res) => {
         const stockBefore = Number(item.currentStock);
         const stockAfter = stockBefore + qty;
         const price = Number(item.unitPrice);
+
+        const parsedExpiryDate = parseOptionalDate(expiryDate);
+        const parsedReturnDate =
+            parseOptionalDate(returnDate) || new Date();
 
         /*
          * UPDATE STOCK
@@ -281,17 +357,36 @@ exports.stockReturn = async (req, res) => {
                 transactionType: "RETURN",
                 quantity: qty,
                 unitPrice: price,
-                stockBefore: stockBefore,
-                stockAfter: stockAfter,
+                stockBefore,
+                stockAfter,
                 totalAmount: qty * price,
-                employeeName: employeeName || null,
-                employeeId: employeeId || null,
-                department: department || null,
-                remarks: remarks || null,
-                batchNumber: batchNumber || null,
-                expiryDate: expiryDate
-                    ? new Date(expiryDate)
-                    : null
+
+                employeeName:
+                    employeeName || null,
+
+                employeeId:
+                    employeeId || null,
+
+                department:
+                    department || null,
+
+                remarks:
+                    remarks || null,
+
+                batchNumber:
+                    batchNumber || null,
+
+                expiryDate:
+                    parsedExpiryDate,
+
+                userId:
+                    req.user?.id || null,
+
+                indentNumber:
+                    indentNumber || null,
+
+                returnDate:
+                    parsedReturnDate
             }
         });
 
