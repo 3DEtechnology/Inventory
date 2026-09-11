@@ -1,15 +1,16 @@
-const router =
-require("express").Router();
+const router = require("express").Router();
 
 const dashboardController =
-require(
-    "../controllers/dashboardController"
-);
+    require("../controllers/dashboardController");
+
+const authMiddleware =
+    require("../middleware/authMiddleware");
+
+router.use(authMiddleware);
 
 router.get(
     "/stats",
     dashboardController.getDashboardStats
 );
 
-module.exports =
-router;
+module.exports = router;
