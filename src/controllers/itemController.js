@@ -1,388 +1,526 @@
+const ExcelJS = require("exceljs");
 const prisma = require("../prisma/client");
-const generateItemCode = require("../utils/generateItemCode");
+const fs = require("fs");
 
 /*
- * GET ALL ITEMS
- */
-exports.getAllItems = async (req, res) => {
-    try {
-        const items = await prisma.item.findMany({
-            orderBy: {
-                id: "asc"
-            }
-        });
-
-        return res.json(items);
-    } catch (error) {
-        console.error("Get All Items Error:", error);
-
-        return res.status(500).json({
-            error: error.message
-        });
-    }
-};
-
-
-/*
- * GET ITEM BY ID
- */
-exports.getItemById = async (req, res) => {
-    try {
-        const id = Number(req.params.id);
-
-        if (!Number.isInteger(id)) {
-            return res.status(400).json({
-                error: "Invalid item ID"
-            });
-        }
-
-        const item = await prisma.item.findUnique({
-            where: {
-                id
-            }
-        });
-
-        if (!item) {
-            return res.status(404).json({
-                message: "Item not found"
-            });
-        }
-
-        return res.json(item);
-    } catch (error) {
-        console.error("Get Item Error:", error);
-
-        return res.status(500).json({
-            error: error.message
-        });
-    }
-};
-
-
-/*
- * CREATE ITEM
+ * IMPORT EXCEL FILE
  *
- * currentStock is allowed when creating a new item.
- * After creation, stock changes should happen through
- * INWARD, OUTWARD or RETURN transactions.
- */
-exports.createItem = async (req, res) => {
-    try {
-        const {
-            particular,
-            uom,
-            subsection,
-            currentStock,
-            unitPrice,
-            minimumStock,
-            batchNumber,
-            rackNumber,
-            expiryDate
-        } = req.body;
-
-        if (!particular || !String(particular).trim()) {
-            return res.status(400).json({
-                error: "Particular is required"
-            });
-        }
-
-        if (!uom || !String(uom).trim()) {
-            return res.status(400).json({
-                error: "UOM is required"
-            });
-        }
-
-        const stock = Number(currentStock ?? 0);
-        const price = Number(unitPrice);
-        const minStock = Number(minimumStock ?? 0);
-
-        if (!Number.isFinite(stock) || stock < 0) {
-            return res.status(400).json({
-                error: "Invalid current stock"
-            });
-        }
-
-        if (!Number.isFinite(price) || price < 0) {
-            return res.status(400).json({
-                error: "Invalid unit price"
-            });
-        }
-
-        if (!Number.isFinite(minStock) || minStock < 0) {
-            return res.status(400).json({
-                error: "Invalid minimum stock"
-            });
-        }
-
-        let parsedExpiryDate = null;
-
-        if (expiryDate) {
-            parsedExpiryDate = new Date(expiryDate);
-
-            if (Number.isNaN(parsedExpiryDate.getTime())) {
-                return res.status(400).json({
-                    error: "Invalid expiry date"
-                });
-            }
-        }
-
-        const itemCode = await generateItemCode();
-
-        const existing = await prisma.item.findUnique({
-            where: {
-                itemCode
-            }
-        });
-
-        if (existing) {
-            return res.status(409).json({
-                error: "Generated item code already exists. Please try again."
-            });
-        }
-
-        const item = await prisma.item.create({
-            data: {
-                itemCode,
-                particular: String(particular).trim(),
-                uom: String(uom).trim(),
-
-                subsection: subsection
-                    ? String(subsection).trim()
-                    : null,
-
-                batchNumber: batchNumber
-                    ? String(batchNumber).trim()
-                    : null,
-
-                rackNumber: rackNumber
-                    ? String(rackNumber).trim()
-                    : null,
-
-                expiryDate: parsedExpiryDate,
-
-                currentStock: stock,
-                unitPrice: price,
-                minimumStock: minStock,
-
-                updatedAt: new Date()
-            }
-        });
-
-        return res.status(201).json({
-            success: true,
-            item
-        });
-
-    } catch (error) {
-        console.error("Create Item Error:", error);
-
-        return res.status(500).json({
-            error: error.message
-        });
-    }
-};
-
-
-/*
- * UPDATE ITEM
+ * Expected Excel columns:
+ *
+ * Item Code
+ * Particular
+ * UOM
+ * Subsection
+ * Current Stock
+ * Unit Price
+ * Minimum Stock
+ * Vendor ID
+ * Batch Number
+ * Rack Number
+ * Expiry Date
+ *
+ * Existing item codes are updated.
+ * New item codes are created.
  *
  * IMPORTANT:
- * currentStock is intentionally NOT accepted here.
- *
- * Stock can only be changed through:
- *   INWARD
- *   OUTWARD
- *   RETURN
+ * currentStock is imported only for NEW items.
+ * Existing item stock is NOT overwritten by Excel import.
+ * Stock changes for existing items must happen through
+ * INWARD / OUTWARD / RETURN transactions.
  */
-exports.updateItem = async (req, res) => {
+exports.importExcel = async (req, res) => {
+    let filePath = null;
+
     try {
-        const id = Number(req.params.id);
-
-        if (!Number.isInteger(id)) {
+        if (!req.file) {
             return res.status(400).json({
-                error: "Invalid item ID"
+                error: "Excel file is required"
             });
         }
 
-        const {
-            particular,
-            uom,
-            subsection,
-            batchNumber,
-            rackNumber,
-            expiryDate,
-            unitPrice,
-            minimumStock
-        } = req.body;
+        filePath = req.file.path;
 
-        if (!particular || !String(particular).trim()) {
+        const workbook = new ExcelJS.Workbook();
+
+        await workbook.xlsx.readFile(filePath);
+
+        const worksheet = workbook.worksheets[0];
+
+        if (!worksheet) {
             return res.status(400).json({
-                error: "Particular is required"
+                error: "Excel workbook contains no worksheet"
             });
         }
 
-        if (!uom || !String(uom).trim()) {
+        if (worksheet.rowCount < 2) {
             return res.status(400).json({
-                error: "UOM is required"
+                error: "Excel file contains no data"
             });
         }
 
-        const price = Number(unitPrice);
-        const minStock = Number(minimumStock);
+        const headerRow = worksheet.getRow(1);
 
-        if (!Number.isFinite(price) || price < 0) {
+        const headers = headerRow.values
+            .slice(1)
+            .map(value =>
+                String(value || "")
+                    .trim()
+                    .toLowerCase()
+            );
+
+        const column = {};
+
+        headers.forEach((header, index) => {
+            column[header] = index + 1;
+        });
+
+        const getColumn = (...names) => {
+            for (const name of names) {
+                if (column[name]) {
+                    return column[name];
+                }
+            }
+
+            return null;
+        };
+
+        const itemCodeColumn =
+            getColumn(
+                "item code",
+                "itemcode",
+                "item_code",
+                "code"
+            );
+
+        const particularColumn =
+            getColumn(
+                "particular",
+                "item",
+                "item name",
+                "itemname"
+            );
+
+        const uomColumn =
+            getColumn(
+                "uom",
+                "unit",
+                "unit of measure"
+            );
+
+        const subsectionColumn =
+            getColumn(
+                "subsection",
+                "section"
+            );
+
+        const currentStockColumn =
+            getColumn(
+                "current stock",
+                "currentstock",
+                "stock",
+                "quantity",
+                "qty"
+            );
+
+        const unitPriceColumn =
+            getColumn(
+                "unit price",
+                "unitprice",
+                "price"
+            );
+
+        const minimumStockColumn =
+            getColumn(
+                "minimum stock",
+                "minimumstock",
+                "min stock",
+                "minstock"
+            );
+
+        const vendorIdColumn =
+            getColumn(
+                "vendor id",
+                "vendorid",
+                "vendor"
+            );
+
+        const batchNumberColumn =
+            getColumn(
+                "batch number",
+                "batchnumber",
+                "batch"
+            );
+
+        const rackNumberColumn =
+            getColumn(
+                "rack number",
+                "racknumber",
+                "rack"
+            );
+
+        const expiryDateColumn =
+            getColumn(
+                "expiry date",
+                "expirydate",
+                "expiry"
+            );
+
+        if (!particularColumn) {
             return res.status(400).json({
-                error: "Invalid unit price"
+                error:
+                    "Excel file must contain a Particular column"
             });
         }
 
-        if (!Number.isFinite(minStock) || minStock < 0) {
+        if (!uomColumn) {
             return res.status(400).json({
-                error: "Invalid minimum stock"
+                error:
+                    "Excel file must contain a UOM column"
             });
         }
 
-        let parsedExpiryDate = null;
+        let created = 0;
+        let updated = 0;
+        let skipped = 0;
+        const errors = [];
 
-        if (expiryDate) {
-            parsedExpiryDate = new Date(expiryDate);
+        for (
+            let rowNumber = 2;
+            rowNumber <= worksheet.rowCount;
+            rowNumber++
+        ) {
+            const row = worksheet.getRow(rowNumber);
 
-            if (Number.isNaN(parsedExpiryDate.getTime())) {
-                return res.status(400).json({
-                    error: "Invalid expiry date"
+            try {
+                const value = columnNumber => {
+                    if (!columnNumber) {
+                        return null;
+                    }
+
+                    return row.getCell(columnNumber).value;
+                };
+
+                const particular =
+                    value(particularColumn);
+
+                const uom =
+                    value(uomColumn);
+
+                if (
+                    particular === null ||
+                    particular === undefined ||
+                    String(particular).trim() === ""
+                ) {
+                    skipped++;
+
+                    continue;
+                }
+
+                if (
+                    uom === null ||
+                    uom === undefined ||
+                    String(uom).trim() === ""
+                ) {
+                    skipped++;
+
+                    errors.push({
+                        row: rowNumber,
+                        error: "UOM is required"
+                    });
+
+                    continue;
+                }
+
+                let itemCode =
+                    itemCodeColumn
+                        ? value(itemCodeColumn)
+                        : null;
+
+                itemCode =
+                    itemCode !== null &&
+                    itemCode !== undefined &&
+                    String(itemCode).trim() !== ""
+                        ? String(itemCode).trim()
+                        : null;
+
+                const stockValue =
+                    currentStockColumn
+                        ? value(currentStockColumn)
+                        : 0;
+
+                const priceValue =
+                    unitPriceColumn
+                        ? value(unitPriceColumn)
+                        : 0;
+
+                const minimumStockValue =
+                    minimumStockColumn
+                        ? value(minimumStockColumn)
+                        : 0;
+
+                const stock =
+                    Number(stockValue || 0);
+
+                const unitPrice =
+                    Number(priceValue || 0);
+
+                const minimumStock =
+                    Number(minimumStockValue || 0);
+
+                if (
+                    !Number.isFinite(stock) ||
+                    stock < 0
+                ) {
+                    throw new Error(
+                        "Invalid current stock"
+                    );
+                }
+
+                if (
+                    !Number.isFinite(unitPrice) ||
+                    unitPrice < 0
+                ) {
+                    throw new Error(
+                        "Invalid unit price"
+                    );
+                }
+
+                if (
+                    !Number.isFinite(minimumStock) ||
+                    minimumStock < 0
+                ) {
+                    throw new Error(
+                        "Invalid minimum stock"
+                    );
+                }
+
+                const subsectionValue =
+                    subsectionColumn
+                        ? value(subsectionColumn)
+                        : null;
+
+                const batchValue =
+                    batchNumberColumn
+                        ? value(batchNumberColumn)
+                        : null;
+
+                const rackValue =
+                    rackNumberColumn
+                        ? value(rackNumberColumn)
+                        : null;
+
+                const vendorValue =
+                    vendorIdColumn
+                        ? value(vendorIdColumn)
+                        : null;
+
+                let vendorId = null;
+
+                if (
+                    vendorValue !== null &&
+                    vendorValue !== undefined &&
+                    String(vendorValue).trim() !== ""
+                ) {
+                    vendorId = Number(vendorValue);
+
+                    if (!Number.isInteger(vendorId)) {
+                        throw new Error(
+                            "Invalid vendor ID"
+                        );
+                    }
+                }
+
+                let expiryDate = null;
+
+                if (expiryDateColumn) {
+                    const expiryValue =
+                        value(expiryDateColumn);
+
+                    if (
+                        expiryValue instanceof Date
+                    ) {
+                        expiryDate = expiryValue;
+                    } else if (
+                        expiryValue !== null &&
+                        expiryValue !== undefined &&
+                        String(expiryValue).trim() !== ""
+                    ) {
+                        expiryDate =
+                            new Date(expiryValue);
+
+                        if (
+                            Number.isNaN(
+                                expiryDate.getTime()
+                            )
+                        ) {
+                            throw new Error(
+                                "Invalid expiry date"
+                            );
+                        }
+                    }
+                }
+
+                let existing = null;
+
+                if (itemCode) {
+                    existing =
+                        await prisma.item.findUnique({
+                            where: {
+                                itemCode
+                            }
+                        });
+                }
+
+                if (existing) {
+                    /*
+                     * Existing stock is deliberately NOT
+                     * changed by an import.
+                     */
+                    await prisma.item.update({
+                        where: {
+                            id: existing.id
+                        },
+
+                        data: {
+                            particular:
+                                String(particular).trim(),
+
+                            uom:
+                                String(uom).trim(),
+
+                            subsection:
+                                subsectionValue
+                                    ? String(
+                                          subsectionValue
+                                      ).trim()
+                                    : null,
+
+                            unitPrice,
+
+                            minimumStock,
+
+                            vendorId,
+
+                            batchNumber:
+                                batchValue
+                                    ? String(
+                                          batchValue
+                                      ).trim()
+                                    : null,
+
+                            rackNumber:
+                                rackValue
+                                    ? String(
+                                          rackValue
+                                      ).trim()
+                                    : null,
+
+                            expiryDate,
+
+                            updatedAt:
+                                new Date()
+                        }
+                    });
+
+                    updated++;
+                } else {
+                    if (!itemCode) {
+                        itemCode =
+                            await generateItemCode();
+                    }
+
+                    await prisma.item.create({
+                        data: {
+                            itemCode,
+
+                            particular:
+                                String(
+                                    particular
+                                ).trim(),
+
+                            uom:
+                                String(
+                                    uom
+                                ).trim(),
+
+                            subsection:
+                                subsectionValue
+                                    ? String(
+                                          subsectionValue
+                                      ).trim()
+                                    : null,
+
+                            currentStock:
+                                stock,
+
+                            unitPrice,
+
+                            minimumStock,
+
+                            vendorId,
+
+                            batchNumber:
+                                batchValue
+                                    ? String(
+                                          batchValue
+                                      ).trim()
+                                    : null,
+
+                            rackNumber:
+                                rackValue
+                                    ? String(
+                                          rackValue
+                                      ).trim()
+                                    : null,
+
+                            expiryDate,
+
+                            updatedAt:
+                                new Date()
+                        }
+                    });
+
+                    created++;
+                }
+            } catch (rowError) {
+                errors.push({
+                    row: rowNumber,
+                    error: rowError.message
                 });
             }
         }
 
-        const existingItem = await prisma.item.findUnique({
-            where: {
-                id
-            }
-        });
-
-        if (!existingItem) {
-            return res.status(404).json({
-                error: "Item not found"
-            });
-        }
-
-        const item = await prisma.item.update({
-            where: {
-                id
-            },
-
-            data: {
-                particular: String(particular).trim(),
-
-                uom: String(uom).trim(),
-
-                subsection: subsection
-                    ? String(subsection).trim()
-                    : null,
-
-                batchNumber: batchNumber
-                    ? String(batchNumber).trim()
-                    : null,
-
-                rackNumber: rackNumber
-                    ? String(rackNumber).trim()
-                    : null,
-
-                expiryDate: parsedExpiryDate,
-
-                unitPrice: price,
-
-                minimumStock: minStock,
-
-                updatedAt: new Date()
-
-                // currentStock intentionally NOT updated.
-            }
-        });
-
         return res.json({
             success: true,
-            item
+            message: "Excel import completed",
+            created,
+            updated,
+            skipped,
+            errors
         });
 
     } catch (error) {
-        console.error("Update Item Error:", error);
+        console.error(
+            "Excel Import Error:",
+            error
+        );
 
         return res.status(500).json({
             error: error.message
         });
-    }
-};
 
-
-/*
- * DELETE ITEM
- *
- * ADMIN permission is enforced by itemRoutes.js.
- */
-exports.deleteItem = async (req, res) => {
-    try {
-        const id = Number(req.params.id);
-
-        if (!Number.isInteger(id)) {
-            return res.status(400).json({
-                error: "Invalid item ID"
-            });
-        }
-
-        const item = await prisma.item.findUnique({
-            where: {
-                id
+    } finally {
+        if (filePath) {
+            try {
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            } catch (cleanupError) {
+                console.error(
+                    "Import file cleanup error:",
+                    cleanupError.message
+                );
             }
-        });
-
-        if (!item) {
-            return res.status(404).json({
-                error: "Item not found"
-            });
         }
-
-        const transactions =
-            await prisma.stocktransaction.findMany({
-                where: {
-                    itemId: id
-                },
-                select: {
-                    id: true
-                }
-            });
-
-        if (transactions.length > 0) {
-            return res.status(409).json({
-                error:
-                    "This item cannot be deleted because stock transaction history exists."
-            });
-        }
-
-        await prisma.$transaction([
-            prisma.pricehistory.deleteMany({
-                where: {
-                    itemId: id
-                }
-            }),
-
-            prisma.item.delete({
-                where: {
-                    id
-                }
-            })
-        ]);
-
-        return res.json({
-            success: true,
-            message: "Item deleted successfully"
-        });
-
-    } catch (error) {
-        console.error("Delete Item Error:", error);
-
-        return res.status(500).json({
-            error: error.message
-        });
     }
 };
