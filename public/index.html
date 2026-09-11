@@ -739,6 +739,34 @@ function authHeaders(){
   const token=sessionStorage.getItem('token');
   return token?{'Authorization':'Bearer '+token}:{};
 }
+  async function apiFetch(url, options = {}) {
+  const headers = {
+    ...(options.headers || {}),
+    ...authHeaders()
+  };
+
+  const response = await fetch(url, {
+    ...options,
+    headers
+  });
+
+  if (response.status === 401) {
+    sessionStorage.removeItem('token');
+
+    document.getElementById('loginPage').style.display = 'flex';
+    document.getElementById('app').style.display = 'none';
+
+    const loginError = document.getElementById('loginError');
+
+    if (loginError) {
+      loginError.innerText = 'Session expired. Please login again.';
+    }
+
+    throw new Error('Authentication required');
+  }
+
+  return response;
+}
 let barChart=null,pieChart=null,top10Chart=null,healthChart=null,analyticsBarChart=null,analyticsPieChart=null;
 let _reportItems=[],_reportTransactions=[];
 let _vendorsCache=[];
@@ -781,7 +809,7 @@ function stockStatus(item){
 // ─── VENDORS ─────────────────────────────────────────────────────────────────
 async function loadVendors(){
   try{
-    const r=await fetch(`${API_BASE}/vendors`);
+    const r=await apiFetch(`${API_BASE}/vendors`);
     const data=await r.json();
     _vendorsCache=data;
     const sel=document.getElementById('vendor-select');
@@ -834,18 +862,18 @@ async function saveVendor(){
   const payload={vendorName,contactPerson:document.getElementById('v-contact').value.trim(),phone:document.getElementById('v-phone').value.trim(),email:document.getElementById('v-email').value.trim(),gstNumber:document.getElementById('v-gst').value.trim()};
   try{
     const r=editingVendorId
-      ?await fetch(`${API_BASE}/vendors/${editingVendorId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
-      :await fetch(`${API_BASE}/vendors`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      ?await apiFetch(`${API_BASE}/vendors/${editingVendorId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+      :await apiFetch(`${API_BASE}/vendors`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(!r.ok){const e=await r.json();alert(e.error||'Failed');return;}
     alert(editingVendorId?'Vendor updated':'Vendor added');closeVendorModal();await loadVendors();
   }catch(e){console.error(e);alert('Failed to save vendor');}
 }
-async function deleteVendor(id){if(!confirm('Delete this vendor?'))return;try{await fetch(`${API_BASE}/vendors/${id}`,{method:'DELETE'});await loadVendors();}catch(e){alert('Failed');}}
+async function deleteVendor(id){if(!confirm('Delete this vendor?'))return;try{await apiFetch(`${API_BASE}/vendors/${id}`,{method:'DELETE'});await loadVendors();}catch(e){alert('Failed');}}
 
 // ─── USERS ───────────────────────────────────────────────────────────────────
 async function loadUsers(){
   try{
-    const r=await fetch(`${API_BASE}/users`,{headers:{...authHeaders()}});
+    const r=await apiFetch(`${API_BASE}/users`,{headers:{...authHeaders()}});
     if(!r.ok){
       const e=await r.json().catch(()=>({}));
       const tbody=document.getElementById('user-body');
@@ -914,8 +942,8 @@ async function saveUser(){
 
   try{
     const r=editingUserId
-      ?await fetch(`${API_BASE}/users/${editingUserId}`,{method:'PUT',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(payload)})
-      :await fetch(`${API_BASE}/users`,{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(payload)});
+      ?await apiFetch(`${API_BASE}/users/${editingUserId}`,{method:'PUT',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(payload)})
+      :await apiFetch(`${API_BASE}/users`,{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(payload)});
     const data=await r.json().catch(()=>({}));
     if(!r.ok){alert(data.message||data.error||'Failed to save user');return;}
     alert(editingUserId?'User updated':'User added');
@@ -926,7 +954,7 @@ async function saveUser(){
 async function deleteUser(id){
   if(!confirm('Delete this user? They will no longer be able to log in.'))return;
   try{
-    const r=await fetch(`${API_BASE}/users/${id}`,{method:'DELETE',headers:{...authHeaders()}});
+    const r=await apiFetch(`${API_BASE}/users/${id}`,{method:'DELETE',headers:{...authHeaders()}});
     const data=await r.json().catch(()=>({}));
     if(!r.ok){alert(data.message||'Failed to delete user');return;}
     await loadUsers();
@@ -946,7 +974,7 @@ function exportVendorsToExcel(){
 // ─── INVENTORY ────────────────────────────────────────────────────────────────
 async function initInventory(){
   try{
-    const r=await fetch(`${API_BASE}/items`);
+    const r=await apiFetch(`${API_BASE}/items`);
     const items=await r.json();
     inventory=items.map(item=>({
       id:String(item.id),
@@ -997,7 +1025,7 @@ function renderDashboard(){
 
 async function loadTransactions(){
   try{
-    const r=await fetch(`${API_BASE}/transactions`);
+    const r=await apiFetch(`${API_BASE}/transactions`);
     const data=await r.json();
     const tbody=document.getElementById('transaction-body');
     if(!tbody)return;
@@ -1041,7 +1069,7 @@ async function loadLedger(){
   try{
     let url=`${API_BASE}/transactions?itemCode=${encodeURIComponent(itemCode)}`;
     if(type)url+=`&type=${encodeURIComponent(type)}`;
-    const data=await(await fetch(url)).json();
+    const data=await(await apiFetch(url)).json();
     const tbody=document.getElementById('ledger-body');
     if(!data.length){tbody.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📒</div><div>No transactions found</div></div></td></tr>`;return;}
     tbody.innerHTML=data.map(t=>`<tr><td>${new Date(t.createdAt).toLocaleDateString('en-IN')}</td><td>${t.item?t.item.particular:'—'}</td><td>${t.transactionType}</td><td class="td-mono">${t.quantity}</td><td class="td-mono">${t.stockBefore}</td><td class="td-mono">${t.stockAfter}</td><td><b>${t.stockAfter}</b></td><td>${t.employeeName||'—'}</td><td>${t.indentNumber||'—'}</td></tr>`).join('');
@@ -1206,7 +1234,7 @@ async function saveModalItem(){
   const qty=parseFloat(document.getElementById('m-qty').value)||0;
   const minStock=parseFloat(document.getElementById('m-minstock').value)||Math.max(1,Math.floor(qty*0.15));
   try{
-    const r=await fetch(`${API_BASE}/items`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({particular:name,uom,subsection:sub,batchNumber:batchNo,rackNumber:rackNo,expiryDate,currentStock:qty,unitPrice:price,minimumStock:minStock})});
+    const r=await apiFetch(`${API_BASE}/items`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({particular:name,uom,subsection:sub,batchNumber:batchNo,rackNumber:rackNo,expiryDate,currentStock:qty,unitPrice:price,minimumStock:minStock})});
     const result=await r.json();
     if(!r.ok){alert(result.error||'Failed');return;}
     alert('Item Created');
@@ -1248,7 +1276,7 @@ async function saveEditItem(){
       unitPrice:Number(document.getElementById('e-price').value),
       minimumStock:Number(document.getElementById('e-minstock').value)
     };
-    const response=await fetch(`${API_BASE}/items/${editingId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const response=await apiFetch(`${API_BASE}/items/${editingId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(!response.ok)throw new Error('Failed to update item');
     await initInventory();closeEditModal();renderInventoryTable();renderDashboard();
     alert('Item updated successfully');
@@ -1259,7 +1287,7 @@ async function deleteItem(){
   if(!editingId)return;
   if(!confirm('Delete this item?'))return;
   try{
-    const r=await fetch(`${API_BASE}/items/${editingId}`,{method:'DELETE'});
+    const r=await apiFetch(`${API_BASE}/items/${editingId}`,{method:'DELETE'});
     if(!r.ok){const e=await r.json().catch(()=>({}));alert(e.error||'Failed to delete item');return;}
     closeEditModal();await initInventory();populateSubsectionFilter();renderInventoryTable();renderDashboard();
   }catch(e){console.error(e);alert('Failed to delete item');}
@@ -1324,13 +1352,13 @@ async function submitPurchase(){
     if(selectedId){
       const selItem=inventory.find(i=>i.id===selectedId);
       if(!selItem){alert('Selected item not found');return;}
-      const r=await fetch(`${API_BASE}/stock/inward`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemCode:selItem.itemCode,quantity,unitPrice,indentNumber,batchNumber:batchNumber||undefined,expiryDate:expiryDate||undefined,vendorId:vendorId||undefined})});
+      const r=await apiFetch(`${API_BASE}/stock/inward`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemCode:selItem.itemCode,quantity,unitPrice,indentNumber,batchNumber:batchNumber||undefined,expiryDate:expiryDate||undefined,vendorId:vendorId||undefined})});
       if(!r.ok){const e=await r.json().catch(()=>({}));alert('Restock failed: '+(e.error||e.message||JSON.stringify(e)));return;}
       alert('Stock Added');
     }else{
       if(!name){alert('Enter item name');return;}
       const uom=document.getElementById('p-uom').value,subsection=document.getElementById('p-subsection').value,minimumStock=Number(document.getElementById('p-minstock').value)||1;
-      const r=await fetch(`${API_BASE}/items`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({particular:name,uom,subsection,currentStock:quantity,unitPrice,minimumStock,expiryDate:expiryDate||undefined,vendorId:vendorId||undefined})});
+      const r=await apiFetch(`${API_BASE}/items`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({particular:name,uom,subsection,currentStock:quantity,unitPrice,minimumStock,expiryDate:expiryDate||undefined,vendorId:vendorId||undefined})});
       if(!r.ok){const e=await r.json().catch(()=>({}));alert(e.message||'Failed to create item');return;}
       alert('New Item Created');
     }
@@ -1474,7 +1502,7 @@ async function submitIssueCart(){
   const results=[];let errors=[];
   for(const c of issueCart){
     try{
-      const r=await fetch(`${API_BASE}/stock/outward`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemCode:c.itemCode,quantity:c.qty,employeeName,employeeId,department,indentNumber:c.indentNumber||''})});
+      const r=await apiFetch(`${API_BASE}/stock/outward`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemCode:c.itemCode,quantity:c.qty,employeeName,employeeId,department,indentNumber:c.indentNumber||''})});
       const data=await r.json();
       if(!r.ok)errors.push(`${c.name}: ${data.error||'Failed'}`);
       else results.push({...c,success:true});
@@ -1546,7 +1574,7 @@ async function submitReturnCart(){
   const results=[];let errors=[];
   for(const c of returnCart){
     try{
-      const r=await fetch(`${API_BASE}/stock/return`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemCode:c.itemCode,quantity:c.qty,employeeName,employeeId,department,returnDate,indentNumber:c.indentNumber||''})});
+      const r=await apiFetch(`${API_BASE}/stock/return`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemCode:c.itemCode,quantity:c.qty,employeeName,employeeId,department,returnDate,indentNumber:c.indentNumber||''})});
       const data=await r.json();
       if(!r.ok)errors.push(`${c.name}: ${data.error||'Failed'}`);
       else results.push({...c,success:true});
@@ -1572,7 +1600,7 @@ async function submitReturnCart(){
 // ─── PURCHASE HISTORY ─────────────────────────────────────────────────────────
 async function renderHistoryTable(){
   try{
-    const data=await(await fetch(`${API_BASE}/transactions?type=INWARD`)).json();
+    const data=await(await apiFetch(`${API_BASE}/transactions?type=INWARD`)).json();
     const tbody=document.getElementById('history-tbody'),empty=document.getElementById('history-empty');
     if(!data.length){tbody.innerHTML='';empty.style.display='block';return;}
     empty.style.display='none';
@@ -1609,7 +1637,7 @@ function switchReportTab(tab,el){document.querySelectorAll('.report-tab').forEac
 async function loadReports(){
   try{
     document.getElementById('reports-date').textContent='Snapshot as of '+new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-    const [itemsRes,txRes]=await Promise.all([fetch(`${API_BASE}/items`),fetch(`${API_BASE}/transactions`)]);
+    const [itemsRes,txRes]=await Promise.all([apiFetch(`${API_BASE}/items`),apiFetch(`${API_BASE}/transactions`)]);
     const items=await itemsRes.json(),transactions=await txRes.json();
     _reportItems=items;_reportTransactions=transactions;
     const totalValue=items.reduce((s,i)=>s+(i.currentStock*i.unitPrice),0);
@@ -1745,7 +1773,7 @@ async function exportAllToExcel(){
   const btn=document.getElementById('export-all-btn');btn.textContent='⏳ Preparing...';btn.disabled=true;
   try{
     let items=_reportItems,transactions=_reportTransactions;
-    if(!items.length){const[a,b]=await Promise.all([fetch(`${API_BASE}/items`),fetch(`${API_BASE}/transactions`)]);items=await a.json();transactions=await b.json();_reportItems=items;_reportTransactions=transactions;}
+    if(!items.length){const[a,b]=await Promise.all([apiFetch(`${API_BASE}/items`),apiFetch(`${API_BASE}/transactions`)]);items=await a.json();transactions=await b.json();_reportItems=items;_reportTransactions=transactions;}
     const wb=XLSX.utils.book_new();
     const txMap={};transactions.forEach(t=>{const k=t.item?.itemCode||'';if(!txMap[k])txMap[k]={INWARD:0,OUTWARD:0,RETURN:0};txMap[k][t.transactionType]=(txMap[k][t.transactionType]||0)+t.quantity;});
 
@@ -1798,15 +1826,6 @@ function switchPage(name,navEl){
   if(name==='reports')loadReports();
 }
 
-// ─── INIT ─────────────────────────────────────────────────────────────────────
-(async()=>{
-  await initInventory();
-  await loadVendors();
-  populateSubsectionFilter();
-  renderInventoryTable();
-  renderDashboard();
-})();
-
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 async function login() {
 
@@ -1847,8 +1866,15 @@ async function login() {
 
 window.onload = async function () {
 
-    if (sessionStorage.getItem("token")) {
+    const token = sessionStorage.getItem("token");
 
+    if (!token) {
+        document.getElementById("loginPage").style.display = "flex";
+        document.getElementById("app").style.display = "none";
+        return;
+    }
+
+    try {
         document.getElementById("loginPage").style.display = "none";
         document.getElementById("app").style.display = "flex";
 
@@ -1858,6 +1884,19 @@ window.onload = async function () {
         populateSubsectionFilter();
         renderInventoryTable();
         renderDashboard();
+
+    } catch (error) {
+        console.error("Application startup error:", error);
+
+        sessionStorage.removeItem("token");
+
+        document.getElementById("loginPage").style.display = "flex";
+        document.getElementById("app").style.display = "none";
+
+        const loginError = document.getElementById("loginError");
+        if (loginError) {
+            loginError.innerText = "Session expired. Please login again.";
+        }
     }
 
 };
