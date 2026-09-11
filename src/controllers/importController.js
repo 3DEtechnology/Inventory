@@ -1,125 +1,79 @@
-const XLSX = require("xlsx");
-
-const prisma =
-require("../prisma/client");
-
-const generateItemCode =
-require("../utils/generateItemCode");
-
-exports.importExcel =
-async (req,res) => {
-
+exports.updateItem = async (req, res) => {
     try {
+        const id = Number(req.params.id);
 
-        const workbook =
-        XLSX.readFile(
-            req.file.path
-        );
+        const {
+            particular,
+            uom,
+            subsection,
+            batchNumber,
+            rackNumber,
+            expiryDate,
+            unitPrice,
+            minimumStock
+        } = req.body;
 
-        const sheetName =
-        workbook.SheetNames[0];
-
-        const sheet =
-        workbook.Sheets[sheetName];
-
-        const data =
-        XLSX.utils.sheet_to_json(
-            sheet
-        );
-
-        let imported = 0;
-
-        for (
-            const row of data
-        ) {
-
-            const existing =
-            await prisma.item.findFirst({
-
-                where: {
-
-                    particular:
-                    row.Particular
-                }
+        if (!Number.isFinite(id)) {
+            return res.status(400).json({
+                message: "Invalid item ID"
             });
-
-            if(existing){
-
-                await prisma.item.update({
-
-                    where:{
-                        id:
-                        existing.id
-                    },
-
-                    data:{
-
-                        currentStock:
-                        Number(
-                            row.Stock
-                        ),
-
-                        unitPrice:
-                        Number(
-                            row.Price
-                        ),
-                        updatedAt: new Date()
-                    }
-                });
-
-            } else {
-
-                const itemCode =
-                await generateItemCode();
-
-                await prisma.item.create({
-
-                    data:{
-
-                        itemCode,
-
-                        particular:
-                        row.Particular,
-
-                        uom:
-                        row.UOM,
-
-                        subsection:
-                        row.Subsection,
-
-                        currentStock:
-                        Number(
-                            row.Stock
-                        ),
-
-                        unitPrice:
-                        Number(
-                            row.Price
-                        ),
-
-                        minimumStock:
-                        10,
-                        updatedAt: new Date()
-                    }
-                });
-            }
-
-            imported++;
         }
 
-        res.json({
+        const price = Number(unitPrice);
+        const minStock = Number(minimumStock);
 
-            success:true,
+        if (!Number.isFinite(price) || price < 0) {
+            return res.status(400).json({
+                message: "Invalid unit price"
+            });
+        }
 
-            imported
+        if (!Number.isFinite(minStock) || minStock < 0) {
+            return res.status(400).json({
+                message: "Invalid minimum stock"
+            });
+        }
+
+        /*
+         * IMPORTANT:
+         * currentStock is intentionally NOT accepted here.
+         *
+         * Stock can only change through:
+         *   INWARD
+         *   OUTWARD
+         *   RETURN
+         *
+         * This prevents users from changing stock directly
+         * from the Item Master.
+         */
+
+        const item = await prisma.item.update({
+            where: { id },
+            data: {
+                particular,
+                uom,
+                subsection,
+                batchNumber: batchNumber || null,
+                rackNumber: rackNumber || null,
+                expiryDate: expiryDate
+                    ? new Date(expiryDate)
+                    : null,
+                unitPrice: price,
+                minimumStock: minStock,
+                updatedAt: new Date()
+            }
         });
 
-    } catch(error){
+        res.json({
+            success: true,
+            item
+        });
+
+    } catch (error) {
+        console.error("Update Item Error:", error);
 
         res.status(500).json({
-
-            error:
-            error.message
+            error: error.message
         });
     }
 };
