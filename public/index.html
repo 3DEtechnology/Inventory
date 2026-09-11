@@ -667,7 +667,7 @@
         <div class="form-group"><label class="form-label">Batch Number</label><input class="form-input" type="text" id="e-batchno" placeholder="e.g. BT-2024-001"/></div>
         <div class="form-group"><label class="form-label">Rack Number</label><input class="form-input" type="text" id="e-rackno" placeholder="e.g. R-A1-03"/></div>
         <div class="form-group"><label class="form-label">Expiry Date</label><input class="form-input" type="date" id="e-expiry"/></div>
-        <div class="form-group"><label class="form-label">Current Stock (Qty)</label><input class="form-input" type="number" id="e-qty"/></div>
+        <div class="form-group">   <label class="form-label">Current Stock (Qty)</label>   <input     class="form-input"     type="number"     id="e-qty"     readonly     style="background:var(--surface2);cursor:not-allowed;"   />   <div style="font-size:11px;color:var(--text3);margin-top:4px">     Stock can only be changed through Inward, Outward or Return transactions.   </div> </div>
         <div class="form-group"><label class="form-label">Per Unit Value (₹)</label><input class="form-input" type="number" id="e-price"/></div>
         <div class="form-group"><label class="form-label">Min Stock Alert Level</label><input class="form-input" type="number" id="e-minstock"/></div>
       </div>
@@ -1272,7 +1272,6 @@ async function saveEditItem(){
       rackNumber:document.getElementById('e-rackno').value.trim(),
       // FIX: include expiryDate in edit payload
       expiryDate:document.getElementById('e-expiry').value||null,
-      currentStock:Number(document.getElementById('e-qty').value),
       unitPrice:Number(document.getElementById('e-price').value),
       minimumStock:Number(document.getElementById('e-minstock').value)
     };
