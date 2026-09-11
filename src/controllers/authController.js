@@ -6,44 +6,72 @@ exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        console.log("Login attempt:", email);
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: "Email and password are required"
+            });
+        }
+
+        const normalizedEmail =
+            String(email).trim().toLowerCase();
 
         const user = await prisma.user.findUnique({
-            where: { email }
+            where: {
+                email: normalizedEmail
+            }
         });
-
-        console.log("User found:", user);
 
         if (!user) {
             return res.status(401).json({
+                success: false,
                 message: "Invalid email or password"
             });
         }
 
-        const valid = await bcrypt.compare(password, user.password);
+        // Prevent inactive/deactivated users from logging in.
+        if (user.isActive === false) {
+            return res.status(403).json({
+                success: false,
+                message: "Your account has been deactivated"
+            });
+        }
+
+        const valid = await bcrypt.compare(
+            password,
+            user.password
+        );
 
         if (!valid) {
             return res.status(401).json({
+                success: false,
                 message: "Invalid email or password"
             });
         }
 
         const token = generateToken(user);
 
-        res.json({
+        return res.json({
+            success: true,
             token,
             user: {
                 id: user.id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                isActive: user.isActive
             }
         });
 
     } catch (err) {
-        console.error(err);
-        res.status(500).json({
-            error: err.message
+        console.error(
+            "Login error:",
+            err.message
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to process login"
         });
     }
 };
