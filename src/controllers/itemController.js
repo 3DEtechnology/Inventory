@@ -8,12 +8,11 @@ exports.getAllItems = async (req, res) => {
     try {
         const items = await prisma.item.findMany({
             orderBy: {
-                id: "desc"
+                id: "asc"
             }
         });
 
         return res.json(items);
-
     } catch (error) {
         console.error("Get All Items Error:", error);
 
@@ -25,7 +24,7 @@ exports.getAllItems = async (req, res) => {
 
 
 /*
- * GET SINGLE ITEM
+ * GET ITEM BY ID
  */
 exports.getItemById = async (req, res) => {
     try {
@@ -45,12 +44,11 @@ exports.getItemById = async (req, res) => {
 
         if (!item) {
             return res.status(404).json({
-                error: "Item not found"
+                message: "Item not found"
             });
         }
 
         return res.json(item);
-
     } catch (error) {
         console.error("Get Item Error:", error);
 
@@ -64,12 +62,9 @@ exports.getItemById = async (req, res) => {
 /*
  * CREATE ITEM
  *
- * currentStock is allowed during initial item creation.
- * After creation, stock changes must happen through:
- *
- *   INWARD
- *   OUTWARD
- *   RETURN
+ * currentStock is allowed when creating a new item.
+ * After creation, stock changes should happen through
+ * INWARD, OUTWARD or RETURN transactions.
  */
 exports.createItem = async (req, res) => {
     try {
@@ -80,7 +75,6 @@ exports.createItem = async (req, res) => {
             currentStock,
             unitPrice,
             minimumStock,
-            vendorId,
             batchNumber,
             rackNumber,
             expiryDate
@@ -88,7 +82,7 @@ exports.createItem = async (req, res) => {
 
         if (!particular || !String(particular).trim()) {
             return res.status(400).json({
-                error: "Particular/item name is required"
+                error: "Particular is required"
             });
         }
 
@@ -120,24 +114,6 @@ exports.createItem = async (req, res) => {
             });
         }
 
-        let parsedVendorId = null;
-
-        if (
-            vendorId !== undefined &&
-            vendorId !== null &&
-            vendorId !== ""
-        ) {
-            const number = Number(vendorId);
-
-            if (!Number.isInteger(number)) {
-                return res.status(400).json({
-                    error: "Invalid vendor ID"
-                });
-            }
-
-            parsedVendorId = number;
-        }
-
         let parsedExpiryDate = null;
 
         if (expiryDate) {
@@ -160,7 +136,7 @@ exports.createItem = async (req, res) => {
 
         if (existing) {
             return res.status(409).json({
-                error: "Generated item code already exists"
+                error: "Generated item code already exists. Please try again."
             });
         }
 
@@ -169,30 +145,24 @@ exports.createItem = async (req, res) => {
                 itemCode,
                 particular: String(particular).trim(),
                 uom: String(uom).trim(),
-                subsection:
-                    subsection
-                        ? String(subsection).trim()
-                        : null,
 
-                currentStock: stock,
+                subsection: subsection
+                    ? String(subsection).trim()
+                    : null,
 
-                unitPrice: price,
+                batchNumber: batchNumber
+                    ? String(batchNumber).trim()
+                    : null,
 
-                minimumStock: minStock,
-
-                vendorId: parsedVendorId,
-
-                batchNumber:
-                    batchNumber
-                        ? String(batchNumber).trim()
-                        : null,
-
-                rackNumber:
-                    rackNumber
-                        ? String(rackNumber).trim()
-                        : null,
+                rackNumber: rackNumber
+                    ? String(rackNumber).trim()
+                    : null,
 
                 expiryDate: parsedExpiryDate,
+
+                currentStock: stock,
+                unitPrice: price,
+                minimumStock: minStock,
 
                 updatedAt: new Date()
             }
@@ -220,7 +190,6 @@ exports.createItem = async (req, res) => {
  * currentStock is intentionally NOT accepted here.
  *
  * Stock can only be changed through:
- *
  *   INWARD
  *   OUTWARD
  *   RETURN
@@ -246,6 +215,18 @@ exports.updateItem = async (req, res) => {
             minimumStock
         } = req.body;
 
+        if (!particular || !String(particular).trim()) {
+            return res.status(400).json({
+                error: "Particular is required"
+            });
+        }
+
+        if (!uom || !String(uom).trim()) {
+            return res.status(400).json({
+                error: "UOM is required"
+            });
+        }
+
         const price = Number(unitPrice);
         const minStock = Number(minimumStock);
 
@@ -258,18 +239,6 @@ exports.updateItem = async (req, res) => {
         if (!Number.isFinite(minStock) || minStock < 0) {
             return res.status(400).json({
                 error: "Invalid minimum stock"
-            });
-        }
-
-        if (!particular || !String(particular).trim()) {
-            return res.status(400).json({
-                error: "Particular/item name is required"
-            });
-        }
-
-        if (!uom || !String(uom).trim()) {
-            return res.status(400).json({
-                error: "UOM is required"
             });
         }
 
@@ -303,38 +272,31 @@ exports.updateItem = async (req, res) => {
             },
 
             data: {
-                particular:
-                    String(particular).trim(),
+                particular: String(particular).trim(),
 
-                uom:
-                    String(uom).trim(),
+                uom: String(uom).trim(),
 
-                subsection:
-                    subsection
-                        ? String(subsection).trim()
-                        : null,
+                subsection: subsection
+                    ? String(subsection).trim()
+                    : null,
 
-                batchNumber:
-                    batchNumber
-                        ? String(batchNumber).trim()
-                        : null,
+                batchNumber: batchNumber
+                    ? String(batchNumber).trim()
+                    : null,
 
-                rackNumber:
-                    rackNumber
-                        ? String(rackNumber).trim()
-                        : null,
+                rackNumber: rackNumber
+                    ? String(rackNumber).trim()
+                    : null,
 
-                expiryDate:
-                    parsedExpiryDate,
+                expiryDate: parsedExpiryDate,
 
-                unitPrice:
-                    price,
+                unitPrice: price,
 
-                minimumStock:
-                    minStock,
+                minimumStock: minStock,
 
-                updatedAt:
-                    new Date()
+                updatedAt: new Date()
+
+                // currentStock intentionally NOT updated.
             }
         });
 
@@ -356,11 +318,7 @@ exports.updateItem = async (req, res) => {
 /*
  * DELETE ITEM
  *
- * ADMIN only is enforced by itemRoutes.js.
- *
- * Do not delete stock history automatically.
- * If the item has transaction history, deleting it would
- * create orphaned historical records.
+ * ADMIN permission is enforced by itemRoutes.js.
  */
 exports.deleteItem = async (req, res) => {
     try {
@@ -388,41 +346,32 @@ exports.deleteItem = async (req, res) => {
             await prisma.stocktransaction.findMany({
                 where: {
                     itemId: id
+                },
+                select: {
+                    id: true
                 }
             });
 
         if (transactions.length > 0) {
             return res.status(409).json({
                 error:
-                    "This item cannot be deleted because stock transaction history exists. Deactivate or archive the item instead."
+                    "This item cannot be deleted because stock transaction history exists."
             });
         }
 
-        const purchases =
-            await prisma.purchase.findMany({
+        await prisma.$transaction([
+            prisma.pricehistory.deleteMany({
                 where: {
                     itemId: id
                 }
-            });
+            }),
 
-        if (purchases.length > 0) {
-            return res.status(409).json({
-                error:
-                    "This item cannot be deleted because purchase history exists. Deactivate or archive the item instead."
-            });
-        }
-
-        await prisma.pricehistory.deleteMany({
-            where: {
-                itemId: id
-            }
-        });
-
-        await prisma.item.delete({
-            where: {
-                id
-            }
-        });
+            prisma.item.delete({
+                where: {
+                    id
+                }
+            })
+        ]);
 
         return res.json({
             success: true,
