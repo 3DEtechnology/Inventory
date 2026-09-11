@@ -1573,7 +1573,7 @@ async function submitReturnCart(){
   const results=[];let errors=[];
   for(const c of returnCart){
     try{
-      const r=await apiFetch(`${API_BASE}/stock/return`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemCode:c.itemCode,quantity:c.qty,employeeName,employeeId,department,returnDate,indentNumber:c.indentNumber||''})});
+      const r=await apiFetch(`${API_BASE}/stock/return`,{   method:'POST',   headers:{'Content-Type':'application/json'},   body:JSON.stringify({itemCode:c.itemCode, quantity:c.qty, employeeName, employeeId, department, returnDate, indentNumber:c.indentNumber||'', batchNumber:c.batchNumber||'', expiryDate:c.expiryDate||null   }) });
       const data=await r.json();
       if(!r.ok)errors.push(`${c.name}: ${data.error||'Failed'}`);
       else results.push({...c,success:true});
