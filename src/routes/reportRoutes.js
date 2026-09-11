@@ -1,8 +1,12 @@
-const router =
-require("express").Router();
+const router = require("express").Router();
 
 const reportController =
-require("../controllers/reportController");
+    require("../controllers/reportController");
+
+const authMiddleware =
+    require("../middleware/authMiddleware");
+
+router.use(authMiddleware);
 
 router.get(
     "/daily",
