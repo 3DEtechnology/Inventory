@@ -70,20 +70,48 @@ const models = {
     defaults: { createdAt: "now" }
   },
 
-  stocktransaction: {
+stocktransaction: {
     fields: [
-      "id", "itemId", "transactionType", "quantity", "unitPrice",
-      "stockBefore", "stockAfter", "totalAmount",
-      "employeeName", "employeeId", "department", "remarks",
-      "createdAt", "batchNumber", "expiryDate", "userId"
+      "id",
+      "itemId",
+      "transactionType",
+      "quantity",
+      "unitPrice",
+      "stockBefore",
+      "stockAfter",
+      "totalAmount",
+      "employeeName",
+      "employeeId",
+      "department",
+      "remarks",
+      "createdAt",
+      "batchNumber",
+      "expiryDate",
+      "userId",
+      "vendorId",
+      "indentNumber",
+      "returnDate"
     ],
+
     types: {
-      id: "int", itemId: "int",
-      quantity: "float", unitPrice: "float", stockBefore: "float", stockAfter: "float", totalAmount: "float",
-      createdAt: "date", expiryDate: "date", userId: "int"
+      id: "int",
+      itemId: "int",
+      quantity: "float",
+      unitPrice: "float",
+      stockBefore: "float",
+      stockAfter: "float",
+      totalAmount: "float",
+      createdAt: "date",
+      expiryDate: "date",
+      userId: "int",
+      vendorId: "int",
+      returnDate: "date"
     },
-    defaults: { createdAt: "now" }
-  },
+
+    defaults: {
+      createdAt: "now"
+    }
+},
 
   user: {
     fields: ["id", "name", "email", "password", "role", "isActive", "createdAt", "updatedAt"],
