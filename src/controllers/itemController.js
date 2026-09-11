@@ -77,7 +77,8 @@ exports.createItem = async (req, res) => {
                     Number(currentStock) *
                     Number(unitPrice),
 
-                remarks: "Opening Stock"
+                remarks: "Opening Stock",
+                userId: req.user?.id || null
             }
         });
 
