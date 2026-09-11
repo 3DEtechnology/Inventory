@@ -1,6 +1,12 @@
 const jwt = require("jsonwebtoken");
 
-const SECRET = process.env.JWT_SECRET || "dev-only-insecure-secret-change-me";
+const SECRET = process.env.JWT_SECRET;
+
+if (!SECRET) {
+    throw new Error(
+        "JWT_SECRET environment variable is required"
+    );
+}
 
 function generateToken(user) {
     return jwt.sign(
@@ -10,8 +16,18 @@ function generateToken(user) {
             role: user.role
         },
         SECRET,
-        { expiresIn: "8h" }
+        {
+            expiresIn: "8h"
+        }
     );
 }
 
-module.exports = { generateToken, SECRET };
+function verifyToken(token) {
+    return jwt.verify(token, SECRET);
+}
+
+module.exports = {
+    generateToken,
+    verifyToken,
+    SECRET
+};
