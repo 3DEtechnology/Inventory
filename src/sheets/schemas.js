@@ -138,9 +138,27 @@ const relations = {
     vendor: { table: "vendor", type: "belongsTo", localKey: "vendorId", foreignKey: "id" }
   },
   stocktransaction: {
-    item: { table: "item", type: "belongsTo", localKey: "itemId", foreignKey: "id" },
-    user: { table: "user", type: "belongsTo", localKey: "userId", foreignKey: "id" }
+  item: {
+    table: "item",
+    type: "belongsTo",
+    localKey: "itemId",
+    foreignKey: "id"
   },
+
+  user: {
+    table: "user",
+    type: "belongsTo",
+    localKey: "userId",
+    foreignKey: "id"
+  },
+
+  vendor: {
+    table: "vendor",
+    type: "belongsTo",
+    localKey: "vendorId",
+    foreignKey: "id"
+  }
+},
   vendor: {
     item: { table: "item", type: "hasMany", localKey: "id", foreignKey: "vendorId" }
   }
